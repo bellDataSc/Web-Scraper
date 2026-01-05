@@ -41,10 +41,10 @@ st.markdown(f"""
 def load_data():
     """Carrega dados do arquivo Excel"""
     try:
-        df = pd.read_excel("20251222-Empresas-mapeadas.xlsx", sheet_name="Mapeamento")
+        df = pd.read_excel("20251222 - Empresas mapeadas.xlsx", sheet_name="Mapeamento")
         return df
     except FileNotFoundError:
-        st.error("Arquivo 20251222-Empresas-mapeadas.xlsx nao encontrado")
+        st.error("20251222 - Empresas mapeadas.xlsx nao encontrado")
         return None
 
 @st.cache_data
