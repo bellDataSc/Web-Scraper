@@ -3,9 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 import os
-from localization_api import LocalizationAPI, get_regional_stats
-import requests
-from bs4 import BeautifulSoup
+from localization_api import LocalizationAPI
+from cnpj_api import CNPJDataFetcher
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +47,11 @@ def init_localization_api():
     """Inicializa API de localidades"""
     return LocalizationAPI()
 
+@st.cache_resource
+def init_cnpj_fetcher():
+    """Inicializa fetcher de CNPJ"""
+    return CNPJDataFetcher()
+
 @st.cache_data
 def load_data():
     """Carrega dados do arquivo Excel"""
@@ -80,74 +84,12 @@ def get_unique_companies(df):
     unique.columns = ['CNPJ', 'Empresa', 'UF', 'Total_Itens']
     return unique.sort_values('Total_Itens', ascending=False)
 
-def scrape_cnpj_data(cnpj: str) -> dict:
-    """
-    Realiza web scraping para obter dados da empresa pelo CNPJ
-    Utiliza API publica de CNPJ
-    """
-    try:
-        clean_cnpj = cnpj.replace('.', '').replace('-', '').replace('/', '')
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        url = f"https://www.sintegra.gov.br/index.php"
-        params = {
-            'tipobusca': 1,
-            'cnpj': clean_cnpj
-        }
-        
-        response = requests.get(url, params=params, headers=headers, timeout=5)
-        
-        if response.status_code == 200:
-            try:
-                soup = BeautifulSoup(response.content, 'html.parser')
-                
-                result = {
-                    'cnpj': cnpj,
-                    'status': 'encontrado',
-                    'cidade': 'Nao especificada',
-                    'uf': 'Nao especificada'
-                }
-                
-                text_content = soup.get_text()
-                
-                if 'MUNICIPIO' in text_content or 'municipio' in text_content:
-                    result['status'] = 'encontrado'
-                else:
-                    result['status'] = 'incompleto'
-                
-                return result
-            except:
-                return {
-                    'cnpj': cnpj,
-                    'status': 'erro_parse',
-                    'cidade': 'Erro ao processar',
-                    'uf': 'Erro'
-                }
-        else:
-            return {
-                'cnpj': cnpj,
-                'status': 'nao_encontrado',
-                'cidade': 'Nao disponivel',
-                'uf': 'Nao disponivel'
-            }
-    
-    except Exception as e:
-        logger.error(f"Erro ao scraping CNPJ {cnpj}: {str(e)}")
-        return {
-            'cnpj': cnpj,
-            'status': 'erro',
-            'cidade': f'Erro: {str(e)[:30]}',
-            'uf': 'Erro'
-        }
-
 def main():
     st.title("Mapeamento de Empresas Fornecedoras")
     st.markdown("Sistema de Geolocalização por CNPJ - FGV IBRE")
     
     loc_api = init_localization_api()
+    cnpj_fetcher = init_cnpj_fetcher()
     df = load_data()
     
     if df is None:
@@ -172,7 +114,7 @@ def main():
     
     with tab1:
         st.subheader("Buscar Dados de Empresa por CNPJ")
-        st.markdown("Realiza web scraping para obter informacoes de localização da empresa")
+        st.markdown("Obtém informações de localização diretamente de bases de CNPJ cadastrais")
         
         col1, col2 = st.columns([3, 1])
         
@@ -187,68 +129,69 @@ def main():
             search_button = st.button("Buscar", key="search_cnpj_button", use_container_width=True)
         
         if search_button and search_cnpj:
-            with st.spinner("Buscando dados..."):
-                result = scrape_cnpj_data(search_cnpj)
+            with st.spinner("Buscando dados nas bases de CNPJ..."):
+                result = cnpj_fetcher.fetch_cnpj_data(search_cnpj)
                 
                 if result['status'] == 'encontrado':
                     st.success("Empresa encontrada!")
-                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    col1, col2 = st.columns(2)
+                    
                     with col1:
                         st.metric("CNPJ", result['cnpj'])
-                    with col2:
                         st.metric("Cidade", result['cidade'])
-                    with col3:
                         st.metric("UF", result['uf'])
-                    with col4:
-                        st.metric("Status", result['status'])
+                        st.metric("CEP", result['cep'])
+                    
+                    with col2:
+                        st.metric("Razao Social", result['razao_social'])
+                        st.metric("Nome Fantasia", result['nome_fantasia'])
+                        st.metric("Endereco", f"{result['logradouro']}, {result['numero']}")
+                        st.metric("Fonte", result['fonte'])
+                
+                elif result['status'] == 'nao_encontrado':
+                    st.warning("Empresa nao encontrada em nenhuma base de CNPJ consultada")
+                    st.info("Verifique se o CNPJ foi digitado corretamente")
                 else:
-                    st.warning(f"Status: {result['status']}")
+                    st.error(f"Erro ao buscar: {result['status']}")
         
         st.divider()
         st.subheader("Scraping em Lote")
-        st.markdown("Realiza web scraping para todos os CNPJs da planilha")
+        st.markdown("Busca dados de localização para todos os CNPJs da planilha")
         
-        if st.button("Iniciar Scraping de Todos os CNPJs", key="scrape_all"):
+        if st.button("Iniciar Busca para Todos os CNPJs", key="scrape_all"):
             progress_bar = st.progress(0)
             status_text = st.empty()
             results_container = st.container()
             
-            scraping_results = []
-            total = len(unique_companies)
-            
-            for idx, (_, row) in enumerate(unique_companies.iterrows()):
-                cnpj = row['CNPJ']
-                empresa = row['Empresa']
-                
-                result = scrape_cnpj_data(cnpj)
-                result['empresa'] = empresa
-                result['uf_base'] = row['UF']
-                result['total_itens'] = row['Total_Itens']
-                scraping_results.append(result)
-                
-                progress = (idx + 1) / total
+            def progress_callback(current, total):
+                progress = current / total
                 progress_bar.progress(progress)
-                status_text.text(f"Processados {idx + 1} de {total} CNPJs")
+                status_text.text(f"Processados {current} de {total} CNPJs")
             
-            results_df = pd.DataFrame(scraping_results)
-            results_df = results_df[['cnpj', 'empresa', 'uf_base', 'status', 'cidade', 'total_itens']]
-            results_df.columns = ['CNPJ', 'Empresa', 'UF Base', 'Status Scraping', 'Cidade', 'Total Itens']
+            scraping_results = cnpj_fetcher.fetch_batch(
+                unique_companies['CNPJ'].tolist(),
+                progress_callback=progress_callback
+            )
             
-            st.success(f"Scraping concluido! {len(results_df)} registros processados")
+            scraping_results = scraping_results[['cnpj', 'razao_social', 'nome_fantasia', 'cidade', 'uf', 'logradouro', 'numero', 'cep', 'status', 'fonte']]
+            scraping_results.columns = ['CNPJ', 'Razao Social', 'Nome Fantasia', 'Cidade', 'UF', 'Logradouro', 'Numero', 'CEP', 'Status', 'Fonte']
+            
+            st.success(f"Busca concluida! {len(scraping_results)} registros processados")
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Encontrados", len(results_df[results_df['Status Scraping'] == 'encontrado']))
+                st.metric("Encontrados", len(scraping_results[scraping_results['Status'] == 'encontrado']))
             with col2:
-                st.metric("Nao Encontrados", len(results_df[results_df['Status Scraping'] == 'nao_encontrado']))
+                st.metric("Nao Encontrados", len(scraping_results[scraping_results['Status'] == 'nao_encontrado']))
             with col3:
-                st.metric("Erros", len(results_df[results_df['Status Scraping'].isin(['erro', 'erro_parse'])]))
+                st.metric("Erros", len(scraping_results[scraping_results['Status'] == 'erro']))
             
             st.divider()
-            st.subheader("Resultados do Scraping")
-            st.dataframe(results_df, use_container_width=True, height=500)
+            st.subheader("Resultados")
+            st.dataframe(scraping_results, use_container_width=True, height=500)
             
-            csv = results_df.to_csv(index=False)
+            csv = scraping_results.to_csv(index=False)
             st.download_button(
                 label="Baixar Resultados em CSV",
                 data=csv,
@@ -356,7 +299,7 @@ def main():
     
     with tab4:
         st.subheader("Validacao de Localidades")
-        st.markdown("Verifica se cidades existem em banco de dados IBGE e identifica regioes metropolitanas")
+        st.markdown("Verifica cidades contra banco de dados IBGE")
         
         col1, col2 = st.columns(2)
         
@@ -377,33 +320,6 @@ def main():
                 })
                 
                 st.dataframe(cities_df, use_container_width=True)
-        
-        st.divider()
-        
-        st.subheader("Validar Empresa Especifica")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            search_uf = st.selectbox("Selecione UF", sorted(unique_companies['UF'].unique()), key="search_uf")
-            companies_in_uf = unique_companies[unique_companies['UF'] == search_uf]
-            company_options = companies_in_uf['Empresa'].tolist()
-            selected_company = st.selectbox("Selecione Empresa", company_options, key="select_company")
-        
-        with col2:
-            if st.button("Validar Empresa", key="validate"):
-                company_data = companies_in_uf[companies_in_uf['Empresa'] == selected_company].iloc[0]
-                
-                st.write(f"**Empresa:** {company_data['Empresa']}")
-                st.write(f"**CNPJ:** {company_data['CNPJ']}")
-                st.write(f"**UF:** {company_data['UF']}")
-                st.write(f"**Total Itens:** {company_data['Total_Itens']}")
-                
-                is_metro, metro_name = loc_api.is_metropolitan_area(search_uf, "")
-                if metro_name:
-                    st.success(f"Esta empresa esta em: **{metro_name}**")
-                else:
-                    st.info("Esta empresa nao esta em regiao metropolitana mapeada")
     
     st.divider()
     with st.expander("Informacoes Detalhadas"):
