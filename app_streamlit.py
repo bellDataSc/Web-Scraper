@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import os
 from localization_api import LocalizationAPI
-from cnpj_api import CNPJDataFetcher
+from cnpj_scraper import CNPJScraper
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -48,9 +48,9 @@ def init_localization_api():
     return LocalizationAPI()
 
 @st.cache_resource
-def init_cnpj_fetcher():
-    """Inicializa fetcher de CNPJ"""
-    return CNPJDataFetcher()
+def init_cnpj_scraper():
+    """Inicializa scraper de CNPJ"""
+    return CNPJScraper()
 
 @st.cache_data
 def load_data():
@@ -89,7 +89,7 @@ def main():
     st.markdown("Sistema de Geolocalização por CNPJ - FGV IBRE")
     
     loc_api = init_localization_api()
-    cnpj_fetcher = init_cnpj_fetcher()
+    cnpj_scraper = init_cnpj_scraper()
     df = load_data()
     
     if df is None:
@@ -113,15 +113,16 @@ def main():
     tab1, tab2, tab3, tab4 = st.tabs(["Web Scraping CNPJ", "Analise Geral", "Regioes Metropolitanas", "Validacao de Localidades"])
     
     with tab1:
-        st.subheader("Buscar Dados de Empresa por CNPJ")
-        st.markdown("Obtém informações de localização diretamente de bases de CNPJ cadastrais")
+        st.subheader("Consultar Dados de Empresa por CNPJ")
+        st.markdown("Realiza web scraping da Receita Federal e Sintegra para obter informacoes cadastrais completas")
+        st.warning("Processamento pode levar alguns segundos por CNPJ. Use com moderacao para nao sobrecarregar as fontes.")
         
         col1, col2 = st.columns([3, 1])
         
         with col1:
             search_cnpj = st.text_input(
                 "Digite o CNPJ",
-                placeholder="XX.XXX.XXX/XXXX-XX",
+                placeholder="XX.XXX.XXX/XXXX-XX ou somente numeros",
                 key="search_cnpj_input"
             )
         
@@ -129,8 +130,8 @@ def main():
             search_button = st.button("Buscar", key="search_cnpj_button", use_container_width=True)
         
         if search_button and search_cnpj:
-            with st.spinner("Buscando dados nas bases de CNPJ..."):
-                result = cnpj_fetcher.fetch_cnpj_data(search_cnpj)
+            with st.spinner("Buscando dados na Receita Federal e Sintegra..."):
+                result = cnpj_scraper.scrape_cnpj(search_cnpj)
                 
                 if result['status'] == 'encontrado':
                     st.success("Empresa encontrada!")
@@ -147,19 +148,40 @@ def main():
                         st.metric("Razao Social", result['razao_social'])
                         st.metric("Nome Fantasia", result['nome_fantasia'])
                         st.metric("Endereco", f"{result['logradouro']}, {result['numero']}")
-                        st.metric("Fonte", result['fonte'])
+                        st.metric("Fonte", result['fonte'].replace('_', ' ').title())
                 
                 elif result['status'] == 'nao_encontrado':
-                    st.warning("Empresa nao encontrada em nenhuma base de CNPJ consultada")
+                    st.warning("Empresa nao encontrada em Receita Federal ou Sintegra")
                     st.info("Verifique se o CNPJ foi digitado corretamente")
                 else:
                     st.error(f"Erro ao buscar: {result['status']}")
         
         st.divider()
-        st.subheader("Scraping em Lote")
-        st.markdown("Busca dados de localização para todos os CNPJs da planilha")
+        st.subheader("Realizar Web Scraping em Lote")
+        st.markdown("""**Atencao**: Processamento em lote pode levar muito tempo (aprox. 2-3 segundos por CNPJ). 
+Para ã visualizar resultados parciais, monitore o progresso.""")
         
-        if st.button("Iniciar Busca para Todos os CNPJs", key="scrape_all"):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            quantidade = st.number_input(
+                "Quantos CNPJs processar (começando pelos primeiros)",
+                min_value=1,
+                max_value=len(unique_companies),
+                value=10,
+                step=1
+            )
+        
+        with col2:
+            if st.button("Iniciar Scraping", key="scrape_all", use_container_width=True):
+                st.session_state.scraping_started = True
+        
+        with col3:
+            if st.button("Parar Scraping", key="stop_scrape", use_container_width=True):
+                st.session_state.scraping_started = False
+                st.info("Scraping pausado")
+        
+        if st.session_state.get('scraping_started', False):
             progress_bar = st.progress(0)
             status_text = st.empty()
             results_container = st.container()
@@ -167,10 +189,11 @@ def main():
             def progress_callback(current, total):
                 progress = current / total
                 progress_bar.progress(progress)
-                status_text.text(f"Processados {current} de {total} CNPJs")
+                status_text.text(f"Processados {current} de {total} CNPJs - Aprox. {current * 2} segundos decorridos")
             
-            scraping_results = cnpj_fetcher.fetch_batch(
-                unique_companies['CNPJ'].tolist(),
+            cnpjs_to_process = unique_companies.head(quantidade)['CNPJ'].tolist()
+            scraping_results = cnpj_scraper.scrape_batch(
+                cnpjs_to_process,
                 progress_callback=progress_callback
             )
             
@@ -327,6 +350,10 @@ def main():
         st.write(f"Empresas unicas: {len(unique_companies)}")
         st.write(f"Periodicidade: Trimestral")
         st.write(f"Data de atualizacao: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        st.write("""**Fontes de dados CNPJ:**
+        - Receita Federal (Prioridade)
+        - Sintegra - Sistema de Integrados Estaduais (Fallback)
+        """)
 
 if __name__ == "__main__":
     main()
