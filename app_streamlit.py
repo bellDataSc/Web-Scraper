@@ -1,9 +1,8 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 from datetime import datetime
+import os
 
 st.set_page_config(
     page_title="Empresas - Geolocalização",
@@ -40,12 +39,23 @@ st.markdown(f"""
 @st.cache_data
 def load_data():
     """Carrega dados do arquivo Excel"""
-    try:
-        df = pd.read_excel("20251222 - Empresas mapeadas.xlsx", sheet_name="Mapeamento")
-        return df
-    except FileNotFoundError:
-        st.error("20251222 - Empresas mapeadas.xlsx nao encontrado")
-        return None
+    file_names = [
+        "20251222 - Empresas mapeadas.xlsx",
+        "20251222-Empresas-mapeadas.xlsx"
+    ]
+    
+    df = None
+    for file_name in file_names:
+        try:
+            if os.path.exists(file_name):
+                df = pd.read_excel(file_name, sheet_name="Mapeamento")
+                st.info(f"Carregado: {file_name}")
+                return df
+        except Exception as e:
+            continue
+    
+    st.error("Arquivo Excel nao encontrado. Verifique se existe na pasta raiz.")
+    return None
 
 @st.cache_data
 def get_unique_companies(df):
