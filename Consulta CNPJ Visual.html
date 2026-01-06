@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta CNPJ - Dashboard Interativo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .search-section {
+            padding: 30px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .search-box input,
+        .search-box select {
+            padding: 12px 16px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .search-box input:focus,
+        .search-box select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .search-box input {
+            flex: 1;
+            min-width: 250px;
+        }
+
+        .search-box button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .search-box button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .stat-card h3 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .stat-card p {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .results-section {
+            margin-top: 30px;
+        }
+
+        .results-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .company-card {
+            background: white;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .company-card:hover {
+            box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+            transform: translateX(5px);
+        }
+
+        .company-card h3 {
+            color: #667eea;
+            font-size: 1.3em;
+            margin-bottom: 10px;
+        }
+
+        .company-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .info-field {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #764ba2;
+        }
+
+        .info-field label {
+            display: block;
+            font-weight: 600;
+            color: #667eea;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .info-field value {
+            display: block;
+            color: #333;
+            font-size: 1em;
+            font-family: 'Courier New', monospace;
+            word-break: break-word;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-top: 5px;
+        }
+
+        .status-po {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-ag {
+            background: #cce5ff;
+            color: #004085;
+        }
+
+        .status-n0 {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-re {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-nl {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+
+        .status-se {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .no-results {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            border-top: 1px solid #ddd;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .search-box {
+                flex-direction: column;
+            }
+
+            .search-box input,
+            .search-box select,
+            .search-box button {
+                width: 100%;
+            }
+
+            .stat-card h3 {
+                font-size: 2em;
+            }
+
+            .company-info {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Consulta de CNPJ</h1>
+            <p>Dashboard Interativo - Base de Empresas Fornecedoras</p>
+        </div>
+
+        <div class="search-section">
+            <div class="search-box">
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    placeholder="Buscar por CNPJ, Empresa ou UF..."
+                    aria-label="Campo de busca"
+                >
+                <select id="stateFilter">
+                    <option value="">Todos os Estados</option>
+                    <option value="PR">Paraná (PR)</option>
+                    <option value="SP">São Paulo (SP)</option>
+                    <option value="MG">Minas Gerais (MG)</option>
+                </select>
+                <button onclick="performSearch()">Buscar</button>
+                <button onclick="clearSearch()" style="background: #6c757d;">Limpar</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card">
+                    <h3 id="totalCompanies">12</h3>
+                    <p>Empresas Cadastradas</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="totalItems">104</h3>
+                    <p>Itens Fornecidos</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="statesCount">2</h3>
+                    <p>Estados</p>
+                </div>
+                <div class="stat-card">
+                    <h3>91.7%</h3>
+                    <p>Concentração em PR</p>
+                </div>
+            </div>
+
+            <div class="results-section" id="resultsSection">
+                <h2>Resultados da Busca</h2>
+                <div id="resultsContainer">
+                    <!-- Results will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Base atualizada em: 22 de Dezembro de 2025 | Total de registros: 104 itens</p>
+            <p>Dados extraídos do arquivo: 20251222-Empresas-mapeadas.xlsx</p>
+        </div>
+    </div>
+
+    <script>
+        const companiesData = [
+            {
+                name: 'AREAL COSTA LTDA',
+                cnpj: '77.510.493/0001-34',
+                state: 'PR',
+                items: 8,
+                status: 'PO',
+                category: 'Extração de Areia'
+            },
+            {
+                name: 'MINAS BRANCA EXTRAÇÃO DE AREIA LTDA - EPP',
+                cnpj: '07.125.938/0001-87',
+                state: 'PR',
+                items: 7,
+                status: 'N0',
+                category: 'Extração de Areia'
+            },
+            {
+                name: 'GR EXTRAÇÃO DE AREIA E TRANSPORTES RODOVIARIOS LTDA',
+                cnpj: '77.145.225/0001-60',
+                state: 'PR',
+                items: 6,
+                status: 'AG',
+                category: 'Extração e Transporte'
+            },
+            {
+                name: 'PEDREIRAS BOSCARDIN LTDA.',
+                cnpj: '77.070.639/0001-78',
+                state: 'PR',
+                items: 5,
+                status: 'PO',
+                category: 'Extração de Pedra'
+            },
+            {
+                name: 'Pedreira Pr 444 LTDA',
+                cnpj: '05.027.411/0001-94',
+                state: 'PR',
+                items: 13,
+                status: 'RE',
+                category: 'Extração de Pedra'
+            },
+            {
+                name: 'E.J.R. CONSTRUCAO CIVIL LTDA',
+                cnpj: '31.689.510/0001-41',
+                state: 'PR',
+                items: 10,
+                status: 'PO',
+                category: 'Construção Civil'
+            },
+            {
+                name: 'Pedreira Expressa Ltda',
+                cnpj: '81.671.125/0001-45',
+                state: 'PR',
+                items: 8,
+                status: 'PO',
+                category: 'Extração de Pedra'
+            },
+            {
+                name: 'PEDREIRA ICA LTDA',
+                cnpj: '75.218.453/0001-98',
+                state: 'PR',
+                items: 8,
+                status: 'AG',
+                category: 'Extração de Pedra'
+            },
+            {
+                name: 'PEDREIRA GUARAVERA LTDA - EPP',
+                cnpj: '04.144.773/0001-00',
+                state: 'PR',
+                items: 8,
+                status: 'PO',
+                category: 'Extração de Pedra'
+            },
+            {
+                name: 'BRASIL MINERAÇÃO E TRANSPORTE S/A',
+                cnpj: '14.877.413/0001-63',
+                state: 'PR',
+                items: 12,
+                status: 'PO',
+                category: 'Mineração e Transporte'
+            },
+            {
+                name: 'FIXWELL COMERCIO DE PARAFUSOS LTDA',
+                cnpj: '00.613.157/0001-92',
+                state: 'PR',
+                items: 9,
+                status: 'AG',
+                category: 'Comércio de Parafusos'
+            },
+            {
+                name: 'J.E.A. INDÚSTRIA METALÚRGICA LTDA.',
+                cnpj: '56.636.376/0001-41',
+                state: 'SP',
+                items: 10,
+                status: 'AG',
+                category: 'Indústria Metalúrgica'
+            }
+        ];
+
+        function performSearch() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const stateFilter = document.getElementById('stateFilter').value;
+
+            const results = companiesData.filter(company => {
+                const matchesSearch = searchTerm === '' ||
+                    company.cnpj.toLowerCase().includes(searchTerm) ||
+                    company.name.toLowerCase().includes(searchTerm) ||
+                    company.state.toLowerCase().includes(searchTerm);
+
+                const matchesState = stateFilter === '' || company.state === stateFilter;
+
+                return matchesSearch && matchesState;
+            });
+
+            displayResults(results);
+        }
+
+        function displayResults(results) {
+            const container = document.getElementById('resultsContainer');
+
+            if (results.length === 0) {
+                container.innerHTML = '<div class="no-results">Nenhuma empresa encontrada com os critérios selecionados.</div>';
+                return;
+            }
+
+            const html = results.map(company => `
+                <div class="company-card">
+                    <h3>${company.name}</h3>
+                    <div class="company-info">
+                        <div class="info-field">
+                            <label>CNPJ</label>
+                            <value>${company.cnpj}</value>
+                        </div>
+                        <div class="info-field">
+                            <label>Estado</label>
+                            <value>${company.state}</value>
+                        </div>
+                        <div class="info-field">
+                            <label>Itens Fornecidos</label>
+                            <value>${company.items}</value>
+                        </div>
+                        <div class="info-field">
+                            <label>Categoria</label>
+                            <value>${company.category}</value>
+                        </div>
+                        <div class="info-field">
+                            <label>Status</label>
+                            <span class="status-badge status-${company.status.toLowerCase()}">${company.status}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            container.innerHTML = html;
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('stateFilter').value = '';
+            performSearch();
+        }
+
+        // Initial display
+        performSearch();
+
+        // Allow Enter key to search
+        document.getElementById('searchInput').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                performSearch();
+            }
+        });
+    </script>
+</body>
+</html>
