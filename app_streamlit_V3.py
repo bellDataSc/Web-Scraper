@@ -112,25 +112,34 @@ class ConsultorCNPJ:
         if resultado is None:
             cnpj_limpo = self._limpar_cnpj(cnpj)
             resultado = {
-                'cnpj': cnpj, 'cnpj_limpo': cnpj_limpo,
+                'cnpj': cnpj,
+                'cnpj_limpo': cnpj_limpo,
                 'cnpj_raiz': cnpj_limpo[:8] if len(cnpj_limpo) >= 8 else 'N/A',
-                'razao_social': 'N/A', 'nome_fantasia': 'N/A',
-                'municipio': 'N/A', 'uf': 'N/A', 'logradouro': 'N/A',
-                'numero': 'N/A', 'bairro': 'N/A', 'complemento': '',
-                'cep': 'N/A', 'cnae': 'N/A', 'cnae_codigo': 'N/A',
-                'cnaes_secundarios': [], 'natureza_juridica': 'N/A',
-                'status': 'ERRO', 'matriz_filial': 'N/A',
+                'razao_social': 'N/A',
+                'nome_fantasia': 'N/A',
+                'municipio': 'N/A',
+                'uf': 'N/A',
+                'logradouro': 'N/A',
+                'numero': 'N/A',
+                'bairro': 'N/A',
+                'complemento': '',
+                'cep': 'N/A',
+                'cnae': 'N/A',
+                'cnae_codigo': 'N/A',
+                'cnaes_secundarios': [],
+                'natureza_juridica': 'N/A',
+                'status': 'ERRO',
+                'matriz_filial': 'N/A',
                 'data_consulta': datetime.now().isoformat(),
-                'email': 'N/A', 'telefone': 'N/A',
-                'data_inicio_atividade': 'N/A', 'capital_social': 'N/A', 'porte': 'N/A',
+                'email': 'N/A',
+                'telefone': 'N/A',
+                'data_inicio_atividade': 'N/A',
+                'capital_social': 'N/A',
+                'porte': 'N/A',
             }
         return resultado
 
     def consultar_filiais_cnpja(self, cnpj: str) -> Dict:
-        """
-        Busca todos os estabelecimentos do grupo via CNPJa (open.cnpja.com).
-        Endpoint publico, sem autenticacao, retorna filiais ativas com endereco.
-        """
         cnpj_limpo = self._limpar_cnpj(cnpj)
         cache_key = f"filiais_{cnpj_limpo}"
 
@@ -156,8 +165,6 @@ class ConsultorCNPJ:
                 return resultado
 
             data = response.json()
-
-            # A CNPJa retorna o campo 'company' com 'branches' listando as filiais
             company = data.get('company', {})
             branches = company.get('branches', [])
 
@@ -201,7 +208,6 @@ class ConsultorCNPJ:
                     'endereco_completo': endereco_completo,
                 })
 
-            # Exclui o proprio CNPJ consultado da lista
             filiais = [f for f in filiais if self._limpar_cnpj(f['cnpj']) != cnpj_limpo]
 
             resultado['filiais'] = filiais
@@ -215,9 +221,11 @@ class ConsultorCNPJ:
             return resultado
 
     def validar_municipio(self, municipio: str, uf: str) -> Tuple[bool, Optional[str]]:
-        if uf not in ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
-                      'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN',
-                      'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']:
+        if uf not in [
+            'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
+            'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN',
+            'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
+        ]:
             return False, None
         municipio_normalizado = self.api_localidades.normalizar_municipio(municipio, uf)
         if municipio_normalizado:
@@ -259,7 +267,7 @@ def main():
         "Analise",
     ])
 
-  
+ 
     with tab1:
         st.header("Consulta Individual de CNPJ")
 
@@ -276,7 +284,6 @@ def main():
                 with st.spinner("Consultando API..."):
                     resultado = consultor.consultar_cnpj(cnpj_input)
 
-                # --- Filiais no topo ---
                 st.subheader("Filiais do Grupo")
                 with st.spinner("Buscando filiais via CNPJa..."):
                     res_filiais = consultor.consultar_filiais_cnpja(cnpj_input)
@@ -308,7 +315,6 @@ def main():
 
                 st.divider()
 
-                # --- Dados Basicos + Localizacao ---
                 col1, col2 = st.columns(2)
                 with col1:
                     st.subheader("Dados Basicos")
@@ -366,11 +372,11 @@ def main():
             else:
                 st.error("Digite um CNPJ valido")
 
-    
+   
     with tab2:
         st.header("Consulta de Filiais / Grupo Empresarial")
         st.markdown(
-            "Busca todos os estabelecimentos do grupo via **CNPJa** (open.cnpja.com). "
+            "Busca todos os estabelecimentos do grupo via CNPJa (open.cnpja.com). "
             "Informe qualquer CNPJ do grupo (matriz ou filial)."
         )
 
@@ -404,7 +410,6 @@ def main():
                         ufs = set(f['uf'] for f in filiais if f['uf'] != 'N/A')
                         st.metric("Estados", len(ufs))
 
-                    # Filtros
                     col_f1, col_f2, col_f3 = st.columns(3)
                     with col_f1:
                         ufs_disp = sorted(ufs)
@@ -416,7 +421,9 @@ def main():
                         )
                     with col_f3:
                         situacoes = sorted(set(f['situacao'] for f in filiais))
-                        sit_filtro = st.multiselect("Filtrar por Situacao", situacoes, key="sit_tab2")
+                        sit_filtro = st.multiselect(
+                            "Filtrar por Situacao", situacoes, key="sit_tab2"
+                        )
 
                     filtrados = filiais
                     if uf_filtro:
@@ -429,10 +436,16 @@ def main():
                     st.markdown(f"**Exibindo {len(filtrados)} registro(s)**")
 
                     df_filiais = pd.DataFrame(filtrados)
-                    colunas = ['cnpj', 'tipo', 'nome_fantasia', 'situacao', 'municipio', 'uf', 'endereco_completo']
+                    colunas = [
+                        'cnpj', 'tipo', 'nome_fantasia', 'situacao',
+                        'municipio', 'uf', 'endereco_completo'
+                    ]
                     colunas = [c for c in colunas if c in df_filiais.columns]
                     df_display = df_filiais[colunas].copy()
-                    df_display.columns = ['CNPJ', 'Tipo', 'Nome Fantasia', 'Situacao', 'Municipio', 'UF', 'Endereco']
+                    df_display.columns = [
+                        'CNPJ', 'Tipo', 'Nome Fantasia', 'Situacao',
+                        'Municipio', 'UF', 'Endereco'
+                    ]
                     st.dataframe(df_display, use_container_width=True, hide_index=True)
 
                     st.divider()
@@ -464,7 +477,7 @@ def main():
             else:
                 st.error("Digite um CNPJ valido")
 
-    
+
     with tab3:
         st.header("Upload em Massa")
 
@@ -522,5 +535,32 @@ def main():
                 st.success("Processamento concluido!")
 
                 col1, col2, col3 = st.columns(3)
-                with
+                with col1:
+                    st.metric("Total Processados", len(df_resultado))
+                with col2:
+                    validos = len(df_resultado[df_resultado['Validacao_Municipio'] == 'SIM'])
+                    st.metric("Municipios Validados", validos)
+                with col3:
+                    match_uf = len(df_resultado[df_resultado['Match_UF'] == 'SIM'])
+                    st.metric("UF Coincidentes", match_uf)
+
+                st.subheader("Dados Processados")
+                st.dataframe(df_resultado, use_container_width=True)
+
+                csv = df_resultado.to_csv(index=False, sep=';', encoding='utf-8')
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"relatorio_cnpj_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+
+   
+    with tab4:
+        st.header("Analise de Dados")
+        st.info("Carregue um arquivo em massa na aba anterior para ver analises")
+
+
+if __name__ == "__main__":
+    main()
 
