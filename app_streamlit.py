@@ -91,6 +91,7 @@ class ConsultorCNPJ:
                     'cnaes_secundarios': cnaes_sec,
                     'natureza_juridica': data.get('natureza_juridica', 'N/A'),
                     'status': 'ATIVO' if data.get('descricao_situacao_cadastral') == 'ATIVA' else 'INATIVO',
+                    'matriz_filial': 'MATRIZ' if data.get('identificador_matriz_filial') == 1 else 'FILIAL',
                     'data_consulta': datetime.now().isoformat()
                 }
                 self.cache[cnpj_limpo] = resultado
@@ -119,6 +120,7 @@ class ConsultorCNPJ:
                 'cnaes_secundarios': [],
                 'natureza_juridica': 'N/A',
                 'status': 'ERRO',
+                'matriz_filial': 'N/A',
                 'data_consulta': datetime.now().isoformat()
             }
 
@@ -176,6 +178,7 @@ def main():
                         st.write(f"**CNPJ:** {resultado['cnpj']}")
                         st.write(f"**Razao Social:** {resultado['razao_social']}")
                         st.write(f"**Nome Fantasia:** {resultado['nome_fantasia']}")
+                        st.write(f"**Tipo:** {resultado['matriz_filial']}")
                         status = resultado['status']
                         if status == 'ATIVO':
                             st.success(f"**Status:** {status}")
