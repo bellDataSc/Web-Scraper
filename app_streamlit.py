@@ -92,6 +92,7 @@ class ConsultorCNPJ:
                     'natureza_juridica': data.get('natureza_juridica', 'N/A'),
                     'status': 'ATIVO' if data.get('descricao_situacao_cadastral') == 'ATIVA' else 'INATIVO',
                     'matriz_filial': 'MATRIZ' if data.get('identificador_matriz_filial') == 1 else 'FILIAL',
+                    'cnpj_matriz': data.get('cnpj_matriz', 'N/A'),
                     'data_consulta': datetime.now().isoformat()
                 }
                 self.cache[cnpj_limpo] = resultado
@@ -121,6 +122,7 @@ class ConsultorCNPJ:
                 'natureza_juridica': 'N/A',
                 'status': 'ERRO',
                 'matriz_filial': 'N/A',
+                'cnpj_matriz': 'N/A',
                 'data_consulta': datetime.now().isoformat()
             }
 
@@ -180,12 +182,21 @@ def main():
                         st.write(f"**Nome Fantasia:** {resultado['nome_fantasia']}")
                         st.write(f"**Tipo:** {resultado['matriz_filial']}")
                         status = resultado['status']
+
                         if status == 'ATIVO':
                             st.success(f"**Status:** {status}")
                         elif status == 'INATIVO':
                             st.error(f"**Status:** {status}")
                         else:
                             st.warning(f"**Status:** {status}")
+
+                        tipo = resultado['matriz_filial']
+                        if tipo == 'FILIAL':
+                            cnpj_mae = resultado.get('cnpj_matriz', 'N/A')
+                            st.write(f"**Tipo:** FILIAL")
+                            st.info(f"CNPJ da Matriz: **{cnpj_mae}**")
+                        else:
+                            st.write(f"**Tipo:** MATRIZ")
 
                     with col2:
                         st.subheader("Localizacao")
