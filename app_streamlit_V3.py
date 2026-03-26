@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+
 class APILocalidades:
     def __init__(self):
         self.cache_municipios = {}
@@ -72,7 +73,6 @@ class ConsultorCNPJ:
 
             if response.status_code == 200:
                 data = response.json()
-                cnaes_sec = data.get('cnaes_secundarios', [])
                 resultado = {
                     'cnpj': cnpj,
                     'cnpj_limpo': cnpj_limpo,
@@ -88,16 +88,13 @@ class ConsultorCNPJ:
                     'cep': data.get('cep', 'N/A'),
                     'cnae': data.get('cnae_fiscal_descricao', 'N/A'),
                     'cnae_codigo': data.get('cnae_fiscal', 'N/A'),
-                    'cnaes_secundarios': cnaes_sec,
+                    'cnaes_secundarios': data.get('cnaes_secundarios', []),
                     'natureza_juridica': data.get('natureza_juridica', 'N/A'),
                     'status': 'ATIVO' if data.get('descricao_situacao_cadastral') == 'ATIVA' else 'INATIVO',
                     'matriz_filial': (
-                        'MATRIZ' if data.get('identificador_matriz_filial') == 1
-                        else 'FILIAL'
+                        'MATRIZ' if data.get('identificador_matriz_filial') == 1 else 'FILIAL'
                     ),
                     'data_consulta': datetime.now().isoformat(),
-                    'qsa': data.get('qsa', []),
-                    'regime_tributario': data.get('regime_tributario', []),
                     'email': data.get('email') or 'N/A',
                     'telefone': data.get('ddd_telefone_1', 'N/A'),
                     'data_inicio_atividade': data.get('data_inicio_atividade', 'N/A'),
@@ -124,26 +121,98 @@ class ConsultorCNPJ:
                 'cnaes_secundarios': [], 'natureza_juridica': 'N/A',
                 'status': 'ERRO', 'matriz_filial': 'N/A',
                 'data_consulta': datetime.now().isoformat(),
-                'qsa': [], 'regime_tributario': [], 'email': 'N/A',
-                'telefone': 'N/A', 'data_inicio_atividade': 'N/A',
-                'capital_social': 'N/A', 'porte': 'N/A',
+                'email': 'N/A', 'telefone': 'N/A',
+                'data_inicio_atividade': 'N/A', 'capital_social': 'N/A', 'porte': 'N/A',
             }
         return resultado
 
-    def consultar_multiplos_cnpjs(self, lista_cnpjs: List[str]) -> List[Dict]:
+    def consultar_filiais_cnpja(self, cnpj: str) -> Dict:
         """
-        Consulta uma lista de CNPJs na BrasilAPI e retorna dados de cada um.
-        Usado na aba Filiais para montar o grupo manualmente.
+        Busca todos os estabelecimentos do grupo via CNPJa (open.cnpja.com).
+        Endpoint publico, sem autenticacao, retorna filiais ativas com endereco.
         """
-        resultados = []
-        for cnpj in lista_cnpjs:
-            cnpj = cnpj.strip()
-            if not cnpj:
-                continue
-            dado = self.consultar_cnpj(cnpj)
-            resultados.append(dado)
-            time.sleep(0.3)
-        return resultados
+        cnpj_limpo = self._limpar_cnpj(cnpj)
+        cache_key = f"filiais_{cnpj_limpo}"
+
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+
+        resultado = {'filiais': [], 'erro': None, 'total': 0}
+
+        try:
+            url = f"https://open.cnpja.com/office/{cnpj_limpo}"
+            response = requests.get(url, headers=self.headers, timeout=15)
+
+            if response.status_code == 429:
+                resultado['erro'] = "Limite de requisicoes atingido na CNPJa. Aguarde 1 minuto."
+                return resultado
+
+            if response.status_code == 404:
+                resultado['erro'] = "CNPJ nao encontrado na CNPJa."
+                return resultado
+
+            if response.status_code != 200:
+                resultado['erro'] = f"CNPJa retornou status {response.status_code}."
+                return resultado
+
+            data = response.json()
+
+            # A CNPJa retorna o campo 'company' com 'branches' listando as filiais
+            company = data.get('company', {})
+            branches = company.get('branches', [])
+
+            filiais = []
+            for est in branches:
+                cnpj_est = str(est.get('taxId', ''))
+                if not cnpj_est:
+                    continue
+
+                tipo = 'MATRIZ' if est.get('head', False) else 'FILIAL'
+                situacao = est.get('status', {}).get('text', 'N/A')
+
+                address = est.get('address', {})
+                municipio = address.get('city', 'N/A')
+                uf = address.get('state', 'N/A')
+                logradouro = address.get('street', 'N/A')
+                numero = address.get('number', 'N/A')
+                bairro = address.get('district', 'N/A')
+                complemento = address.get('details', '') or ''
+                cep = address.get('zip', 'N/A')
+
+                comp_str = f" {complemento}" if complemento else ''
+                endereco_completo = (
+                    f"{logradouro}, {numero}{comp_str} - "
+                    f"{bairro} - {municipio}/{uf} - CEP: {cep}"
+                )
+
+                filiais.append({
+                    'cnpj': self._formatar_cnpj(cnpj_est),
+                    'tipo': tipo,
+                    'razao_social': company.get('name', 'N/A'),
+                    'nome_fantasia': est.get('alias', 'N/A'),
+                    'situacao': situacao,
+                    'logradouro': logradouro,
+                    'numero': numero,
+                    'complemento': complemento,
+                    'bairro': bairro,
+                    'municipio': municipio,
+                    'uf': uf,
+                    'cep': cep,
+                    'endereco_completo': endereco_completo,
+                })
+
+            # Exclui o proprio CNPJ consultado da lista
+            filiais = [f for f in filiais if self._limpar_cnpj(f['cnpj']) != cnpj_limpo]
+
+            resultado['filiais'] = filiais
+            resultado['total'] = len(filiais)
+            self.cache[cache_key] = resultado
+            return resultado
+
+        except Exception as e:
+            logger.warning(f"Erro ao consultar filiais CNPJa: {e}")
+            resultado['erro'] = f"Erro inesperado: {str(e)}"
+            return resultado
 
     def validar_municipio(self, municipio: str, uf: str) -> Tuple[bool, Optional[str]]:
         if uf not in ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
@@ -169,11 +238,12 @@ def exibir_status(status: str):
 def montar_endereco(r: Dict) -> str:
     comp = f" {r.get('complemento', '')}" if r.get('complemento') else ''
     return (
-        f"{r.get('logradouro','N/A')}, {r.get('numero','N/A')}{comp} - "
-        f"{r.get('bairro','N/A')} - "
-        f"{r.get('municipio','N/A')}/{r.get('uf','N/A')} - "
-        f"CEP: {r.get('cep','N/A')}"
+        f"{r.get('logradouro', 'N/A')}, {r.get('numero', 'N/A')}{comp} - "
+        f"{r.get('bairro', 'N/A')} - "
+        f"{r.get('municipio', 'N/A')}/{r.get('uf', 'N/A')} - "
+        f"CEP: {r.get('cep', 'N/A')}"
     )
+
 
 
 def main():
@@ -189,7 +259,7 @@ def main():
         "Analise",
     ])
 
-   
+  
     with tab1:
         st.header("Consulta Individual de CNPJ")
 
@@ -206,6 +276,39 @@ def main():
                 with st.spinner("Consultando API..."):
                     resultado = consultor.consultar_cnpj(cnpj_input)
 
+                # --- Filiais no topo ---
+                st.subheader("Filiais do Grupo")
+                with st.spinner("Buscando filiais via CNPJa..."):
+                    res_filiais = consultor.consultar_filiais_cnpja(cnpj_input)
+
+                if res_filiais['erro']:
+                    st.warning(f"Filiais: {res_filiais['erro']}")
+                elif res_filiais['total'] == 0:
+                    st.info("Nenhuma filial encontrada para este CNPJ.")
+                else:
+                    filiais = res_filiais['filiais']
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        st.metric("Total de Filiais", res_filiais['total'])
+                    with col_m2:
+                        ativas = sum(1 for f in filiais if 'ATIVA' in f['situacao'].upper())
+                        st.metric("Filiais Ativas", ativas)
+                    with col_m3:
+                        ufs = set(f['uf'] for f in filiais if f['uf'] != 'N/A')
+                        st.metric("Estados", len(ufs))
+
+                    df_filiais = pd.DataFrame(filiais)
+                    df_display = df_filiais[
+                        ['cnpj', 'tipo', 'nome_fantasia', 'situacao', 'municipio', 'uf', 'endereco_completo']
+                    ].copy()
+                    df_display.columns = [
+                        'CNPJ', 'Tipo', 'Nome Fantasia', 'Situacao', 'Municipio', 'UF', 'Endereco'
+                    ]
+                    st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+                st.divider()
+
+                # --- Dados Basicos + Localizacao ---
                 col1, col2 = st.columns(2)
                 with col1:
                     st.subheader("Dados Basicos")
@@ -260,158 +363,108 @@ def main():
                     st.subheader("Atividades Secundarias")
                     st.info("Nenhuma atividade secundaria cadastrada.")
 
-                qsa = resultado.get('qsa', [])
-                if qsa:
-                    st.subheader(f"Quadro Societario ({len(qsa)} socio(s))")
-                    df_qsa = pd.DataFrame([{
-                        'Nome': s.get('nome_socio', 'N/A'),
-                        'Qualificacao': s.get('qualificacao_socio', 'N/A'),
-                        'Faixa Etaria': s.get('faixa_etaria', 'N/A'),
-                        'Data Entrada': s.get('data_entrada_sociedade', 'N/A'),
-                    } for s in qsa])
-                    st.dataframe(df_qsa, use_container_width=True, hide_index=True)
-
-                regime = resultado.get('regime_tributario', [])
-                if regime:
-                    st.subheader("Regime Tributario")
-                    df_regime = pd.DataFrame([{
-                        'Ano': r.get('ano', 'N/A'),
-                        'Tributacao': r.get('forma_de_tributacao', 'N/A'),
-                    } for r in regime])
-                    st.dataframe(df_regime, use_container_width=True, hide_index=True)
-
             else:
                 st.error("Digite um CNPJ valido")
 
- 
+    
     with tab2:
         st.header("Consulta de Filiais / Grupo Empresarial")
         st.markdown(
-            "Informe o CNPJ principal e, em seguida, adicione os CNPJs das filiais "
-            "para consultar e comparar enderecos e situacao cadastral via BrasilAPI."
-        )
-        st.info(
-            "A BrasilAPI consulta um CNPJ por vez. Informe cada CNPJ do grupo "
-            "separado por virgula ou um por linha para montar o painel completo."
+            "Busca todos os estabelecimentos do grupo via **CNPJa** (open.cnpja.com). "
+            "Informe qualquer CNPJ do grupo (matriz ou filial)."
         )
 
-        cnpj_grupo_input = st.text_area(
-            "CNPJs do grupo (um por linha ou separados por virgula)",
-            placeholder="00.000.000/0001-00\n00.000.000/0002-00\n00.000.000/0003-00",
-            height=120,
-            key="cnpj_grupo"
-        )
+        col1, col2 = st.columns(2)
+        with col1:
+            cnpj_filiais = st.text_input(
+                "Digite o CNPJ", placeholder="00.000.000/0000-00", key="cnpj_tab2"
+            )
+        with col2:
+            buscar_filiais = st.button("Buscar Filiais", key="btn_filiais")
 
-        buscar_grupo = st.button("Consultar Grupo", key="btn_grupo")
+        if buscar_filiais:
+            if cnpj_filiais:
+                with st.spinner("Consultando grupo empresarial..."):
+                    res = consultor.consultar_filiais_cnpja(cnpj_filiais)
 
-        if buscar_grupo:
-            if cnpj_grupo_input:
-                raw = cnpj_grupo_input.replace('\n', ',')
-                lista_cnpjs = [c.strip() for c in raw.split(',') if c.strip()]
-
-                if not lista_cnpjs:
-                    st.error("Nenhum CNPJ valido informado.")
+                if res['erro']:
+                    st.error(f"Erro: {res['erro']}")
+                elif res['total'] == 0:
+                    st.info("Nenhuma filial encontrada para este CNPJ.")
                 else:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    resultados_grupo = []
+                    filiais = res['filiais']
 
-                    for i, cnpj in enumerate(lista_cnpjs):
-                        with st.spinner(f"Consultando {cnpj}..."):
-                            dado = consultor.consultar_cnpj(cnpj)
-                            resultados_grupo.append(dado)
-                        progress_bar.progress((i + 1) / len(lista_cnpjs))
-                        status_text.text(f"Consultados {i + 1}/{len(lista_cnpjs)}")
-                        time.sleep(0.3)
-
-                    status_text.empty()
-                    progress_bar.empty()
-
-                    # Metricas
-                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                    col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
-                        st.metric("Total Consultados", len(resultados_grupo))
+                        st.metric("Total no Grupo", res['total'])
                     with col_m2:
-                        ativos = sum(1 for r in resultados_grupo if r['status'] == 'ATIVO')
-                        st.metric("Ativos", ativos)
+                        qtd_filiais = sum(1 for f in filiais if f['tipo'] == 'FILIAL')
+                        st.metric("Filiais", qtd_filiais)
                     with col_m3:
-                        filiais = sum(1 for r in resultados_grupo if r['matriz_filial'] == 'FILIAL')
-                        st.metric("Filiais", filiais)
-                    with col_m4:
-                        ufs = set(r['uf'] for r in resultados_grupo if r['uf'] != 'N/A')
+                        ufs = set(f['uf'] for f in filiais if f['uf'] != 'N/A')
                         st.metric("Estados", len(ufs))
 
                     # Filtros
-                    col_f1, col_f2 = st.columns(2)
+                    col_f1, col_f2, col_f3 = st.columns(3)
                     with col_f1:
                         ufs_disp = sorted(ufs)
-                        uf_filtro = st.multiselect("Filtrar por UF", ufs_disp, key="uf_filtro_filiais")
+                        uf_filtro = st.multiselect("Filtrar por UF", ufs_disp, key="uf_tab2")
                     with col_f2:
                         tipo_filtro = st.multiselect(
-                            "Filtrar por Tipo",
-                            ['MATRIZ', 'FILIAL'],
-                            key="tipo_filtro_filiais"
+                            "Filtrar por Tipo", ['MATRIZ', 'FILIAL'],
+                            default=['FILIAL'], key="tipo_tab2"
                         )
+                    with col_f3:
+                        situacoes = sorted(set(f['situacao'] for f in filiais))
+                        sit_filtro = st.multiselect("Filtrar por Situacao", situacoes, key="sit_tab2")
 
-                    filtrados = resultados_grupo
+                    filtrados = filiais
                     if uf_filtro:
-                        filtrados = [r for r in filtrados if r['uf'] in uf_filtro]
+                        filtrados = [f for f in filtrados if f['uf'] in uf_filtro]
                     if tipo_filtro:
-                        filtrados = [r for r in filtrados if r['matriz_filial'] in tipo_filtro]
+                        filtrados = [f for f in filtrados if f['tipo'] in tipo_filtro]
+                    if sit_filtro:
+                        filtrados = [f for f in filtrados if f['situacao'] in sit_filtro]
 
                     st.markdown(f"**Exibindo {len(filtrados)} registro(s)**")
 
-                    # Tabela resumo
-                    df_grupo = pd.DataFrame([{
-                        'CNPJ': r['cnpj'],
-                        'Razao Social': r['razao_social'],
-                        'Nome Fantasia': r['nome_fantasia'],
-                        'Tipo': r['matriz_filial'],
-                        'Status': r['status'],
-                        'UF': r['uf'],
-                        'Municipio': r['municipio'],
-                        'Endereco Completo': montar_endereco(r),
-                    } for r in filtrados])
+                    df_filiais = pd.DataFrame(filtrados)
+                    colunas = ['cnpj', 'tipo', 'nome_fantasia', 'situacao', 'municipio', 'uf', 'endereco_completo']
+                    colunas = [c for c in colunas if c in df_filiais.columns]
+                    df_display = df_filiais[colunas].copy()
+                    df_display.columns = ['CNPJ', 'Tipo', 'Nome Fantasia', 'Situacao', 'Municipio', 'UF', 'Endereco']
+                    st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-                    st.dataframe(df_grupo, use_container_width=True, hide_index=True)
-
-                    # Cards detalhados
                     st.divider()
                     st.subheader("Detalhes por Estabelecimento")
-                    for r in filtrados:
-                        label = f"{r['matriz_filial']} | {r['cnpj']} | {r['razao_social']}"
+                    for f in filtrados:
+                        label = f"{f['tipo']} | {f['cnpj']} | {f['municipio']}/{f['uf']}"
                         with st.expander(label):
                             c1, c2 = st.columns(2)
                             with c1:
-                                st.write(f"**CNPJ:** {r['cnpj']}")
-                                st.write(f"**CNPJ Raiz:** {r['cnpj_raiz']}")
-                                st.write(f"**Razao Social:** {r['razao_social']}")
-                                st.write(f"**Nome Fantasia:** {r['nome_fantasia']}")
-                                st.write(f"**Tipo:** {r['matriz_filial']}")
-                                st.write(f"**Porte:** {r['porte']}")
-                                exibir_status(r['status'])
+                                st.write(f"**CNPJ:** {f['cnpj']}")
+                                st.write(f"**Nome Fantasia:** {f['nome_fantasia']}")
+                                st.write(f"**Tipo:** {f['tipo']}")
+                                st.write(f"**Situacao:** {f['situacao']}")
                             with c2:
-                                st.write(f"**Logradouro:** {r['logradouro']}, {r['numero']}")
-                                if r.get('complemento'):
-                                    st.write(f"**Complemento:** {r['complemento']}")
-                                st.write(f"**Bairro:** {r['bairro']}")
-                                st.write(f"**Municipio/UF:** {r['municipio']}/{r['uf']}")
-                                st.write(f"**CEP:** {r['cep']}")
-                                st.write(f"**Telefone:** {r['telefone']}")
-                                st.write(f"**Email:** {r['email']}")
-                                st.write(f"**Inicio Atividade:** {r['data_inicio_atividade']}")
+                                st.write(f"**Logradouro:** {f['logradouro']}, {f['numero']}")
+                                if f.get('complemento'):
+                                    st.write(f"**Complemento:** {f['complemento']}")
+                                st.write(f"**Bairro:** {f['bairro']}")
+                                st.write(f"**Municipio/UF:** {f['municipio']}/{f['uf']}")
+                                st.write(f"**CEP:** {f['cep']}")
 
-                    # Download
-                    csv_grupo = df_grupo.to_csv(index=False, sep=';', encoding='utf-8')
+                    csv_filiais = df_filiais.to_csv(index=False, sep=';', encoding='utf-8')
                     st.download_button(
-                        label="Download CSV - Grupo",
-                        data=csv_grupo,
-                        file_name=f"grupo_cnpj_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        label="Download CSV - Filiais",
+                        data=csv_filiais,
+                        file_name=f"filiais_{consultor._limpar_cnpj(cnpj_filiais)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv"
                     )
             else:
-                st.error("Informe ao menos um CNPJ.")
+                st.error("Digite um CNPJ valido")
 
+    
     with tab3:
         st.header("Upload em Massa")
 
@@ -458,13 +511,10 @@ def main():
                     ) if cnaes_sec else 'N/A'
 
                     resultado.pop('cnaes_secundarios', None)
-                    resultado.pop('qsa', None)
-                    resultado.pop('regime_tributario', None)
 
                     resultados.append(resultado)
 
-                    progress = (idx + 1) / len(df)
-                    progress_bar.progress(progress)
+                    progress_bar.progress((idx + 1) / len(df))
                     status_text.text(f"Processados {idx + 1}/{len(df)}")
                     time.sleep(0.2)
 
@@ -472,31 +522,5 @@ def main():
                 st.success("Processamento concluido!")
 
                 col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total Processados", len(df_resultado))
-                with col2:
-                    validos = len(df_resultado[df_resultado['Validacao_Municipio'] == 'SIM'])
-                    st.metric("Municipios Validados", validos)
-                with col3:
-                    match_uf = len(df_resultado[df_resultado['Match_UF'] == 'SIM'])
-                    st.metric("UF Coincidentes", match_uf)
+                with
 
-                st.subheader("Dados Processados")
-                st.dataframe(df_resultado, use_container_width=True)
-
-                csv = df_resultado.to_csv(index=False, sep=';', encoding='utf-8')
-                st.download_button(
-                    label="Download CSV",
-                    data=csv,
-                    file_name=f"relatorio_cnpj_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-
- 
-    with tab4:
-        st.header("Analise de Dados")
-        st.info("Carregue um arquivo em massa na aba anterior para ver analises")
-
-
-if __name__ == "__main__":
-    main()
